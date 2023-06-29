@@ -1,0 +1,200 @@
+def assert message condition =
+	if !condition then
+		raise :AssertionError message
+	else
+		nil
+
+
+let ops_test = 
+	let tests = [
+		1 + 2 == 3,
+		1 - 2 == -1,
+		1 * 2 == 2,
+		1 / 2 == 0.5,
+		3 % 2 == 1,
+		1 <<< 2 == 4,
+		1 >>> 2 == 0,
+		1 &&& 2 == 0,
+		1 ||| 2 == 3,
+		1 ^^^ 2 == 3,
+		1 == 1,
+		1 != 2,
+		1 < 2,
+		1 <= 1,
+		3 > 2,
+		3 >= 3,
+		1 && 2,
+		1 || 0,
+	]
+	in List.map (assert "Operator test failed") tests
+
+type Person = p name age with
+	def adult? (Person.p "John" age) =
+		age >= 18
+
+	def older (Person.p name age) (Person.p name' age') =
+		if age >= age' then name else name'
+end
+
+let (Person.p "John" 18) = Person.p "John" 18
+
+let type_test =
+	let p = Person.p "John" 18
+	in (
+		assert "Person is not adult" (Person.adult? p),
+		assert "p is not a Person" (p is Person),
+		assert "John should be older" ((Person.older (Person.p "Martin" 14) p) == "John"),
+	)
+
+let exception_test =
+	try
+		raise :AssertionError "should be rescued"
+	rescue e
+		assert "Should be an assertion error" (e == :AssertionError)
+
+let list_test =
+	assert
+		"List tests failed"
+		(
+			[1, 2, 3]
+			|> List.map (fn i -> i * 2)
+			|> List.map (fn i -> i + 1)
+			|> List.filter (fn i -> i != 3)
+			|> List.fold (fn acc x -> acc + x) 0
+			|> (fn x -> x == 12)
+		)
+
+def tailcall counter _ =
+	match counter with
+	| _ if counter > 0 -> =>tailcall (counter - 1) nil
+	| _ -> "Done"
+
+assert "Tailcall test failed" (tailcall 10 nil == "Done")
+
+def partial a b c d = a * b - c * d
+
+let ops_tests =
+	let tests = [
+		partial 1 2 3 4 == -10,
+		(partial 1) 2 3 4 == -10,
+		(partial 1 2) 3 4 == -10,
+		(partial 1 2 3) 4 == -10,
+		((partial 1) 2 3) 4 == -10,
+		(((partial 1) 2) 3) 4 == -10,
+		((partial 1) 2 3) 4 == -10,
+	]
+	in List.map (assert "Partial function test failed") tests
+
+
+let collect =
+	List.fold (fn a b -> a + b) ""
+
+def numeric? chr =
+	Str.ord chr >= 48 && Str.ord chr <= 57 || chr == "."
+
+type Token
+	= add
+	| sub
+	| mul
+	| div
+	| lpr
+	| rpr
+	| num n
+with
+	def fromCharList str =
+		match str with
+		| "+" :: rest -> (Token.add, rest)
+		| "-" :: rest -> (Token.sub, rest)
+		| "*" :: rest -> (Token.mul, rest)
+		| "/" :: rest -> (Token.div, rest)
+		| "(" :: rest -> (Token.lpr, rest)
+		| ")" :: rest -> (Token.rpr, rest)
+		| chr :: _ if numeric? chr ->
+			def reducer (cond, number) chr =
+				if cond && numeric? chr
+				then (cond, (chr :: number))
+				else (false, number)
+			in
+			let (_, number) = List.fold reducer (true, []) str
+			in (Token.num (num (collect (List.rev number))), List.drop (List.len number) str)
+
+		| chr :: rest if chr == "\n" || chr == "\t" || chr == " " ->
+			Token.fromCharList rest
+end
+
+def lex input =
+	let (token, rest) = Token.fromCharList input
+	in if rest == [] then token::[] else token::(lex rest)
+
+type Ast
+	= add l r
+	| sub l r
+	| mul l r
+	| div l r
+	| lit x
+with
+	def parse xs =
+		let (expr, _) = Ast.expr xs
+		in expr
+
+	def expr xs = Ast.term xs
+
+	def term xs =
+		let (left, rest) = Ast.fact xs
+		in match rest with
+		| Token.add :: rest' ->
+			let (right, rest'') = Ast.term rest'
+			in (Ast.add left right, rest'')
+		| Token.sub :: rest' ->
+			let (right, rest'') = Ast.term rest'
+			in (Ast.sub left right, rest'')
+		| _ -> (left, rest)
+
+	def fact xs =
+		let (left, rest) = Ast.prim xs
+		in match rest with
+		| Token.mul :: rest' ->
+			let (right, rest'') = Ast.fact rest'
+			in (Ast.mul left right, rest'')
+		| Token.div :: rest' ->
+			let (right, rest'') = Ast.fact rest'
+			in (Ast.div left right, rest'')
+		| _ -> (left, rest)
+
+	def prim xs =
+		match xs with
+		| Token.num num :: xs' -> (Ast.lit num, xs')
+		| Token.lpr :: xs' ->
+			let (body, rest) = Ast.expr xs'
+			in let Token.rpr :: rest' = rest
+			in (body, rest')
+		| Token.sub :: xs' ->
+			let (num, rest) = Ast.prim xs'
+			in (Ast.mul (Ast.lit (-1)) num, rest)
+end
+
+def eval expr =
+	match expr with
+	| Ast.add l r -> eval l + eval r
+	| Ast.sub l r -> eval l - eval r
+	| Ast.mul l r -> eval l * eval r
+	| Ast.div l r -> eval l / eval r
+	| Ast.lit n -> n
+
+let _ =
+	Str.toList "-1 + 2 * 3 - 4 / 5"
+	|> lex
+	|> Ast.parse
+	|> eval
+	|> fn result -> assert "Calculator test failed" (result == 4.2)
+let _ = 
+	match (Result.ok 10) 
+		with
+			| Result.ok 10 -> ()
+			| _ -> assert "Result (ok) test failed!" false
+let _ = 
+	match (Result.fail 10)
+		with 
+			| Result.fail 10 -> ()
+			| Result.ok 10 -> assert "Result (err) test failed!"
+let _ = println "Everything is alright!"
